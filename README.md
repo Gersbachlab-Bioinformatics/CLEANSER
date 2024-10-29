@@ -7,19 +7,8 @@ CLEANSER is a gRNA-cell assignment method that uses a mixture of two distinct di
 
 **Note**: These steps have been tested on macOS and Linux, but not Windows.
 
-tl;dr
-
-    git clone https://github.com/siyansusan/CLEANSER.git
-    cd CLEANSER
-    pip install .
+    pip install git+https://github.com/Gersbachlab-Bioinformatics/CLEANSER.git
     install_cmdstan
-
-First, clone the repository using `git` using either the https or ssh url:
-
-Https: `git clone https://github.com/siyansusan/CLEANSER.git`
-SSH: `git clone git@github.com:siyansusan/CLEANSER.git`
-
-Next change into the CLEANSER directory and run `pip install .`.
 
 CLEANSER depends on something called [CmdStan](https://mc-stan.org/docs/cmdstan-guide/index.html) which, if you don't have, you'll need to install. Fortunately a script was installed as part of CLEANSER to make this easier. To install CmdStan run `install_cmdstan` which will download and install the latest version of CmdStan for CLEANSER to use.
 
