@@ -146,6 +146,26 @@ def plot_scatter(x, y, title="", x_label="", y_label="") -> Figure:
     return fig
 
 
+def plot_ecdf(x, threshold: float, title="", x_label="", y_label="") -> Figure:
+    # plot:
+    fig, ax = plt.subplots()
+
+    ax.ecdf(x)
+
+    if threshold != 0.0:
+        ax.plot((threshold, threshold), (0, 1), linestyle="dashed", label="Threshold")
+        ax.legend()
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
+
+    # Tweak spacing to prevent clipping of ylabel
+    fig.tight_layout()
+
+    return fig
+
+
 def sample_stat_output(statistics: list[CSSampleMetadata] | list[DCSampleMetadata]) -> str:
     statistic_text = StringIO()
 
@@ -205,6 +225,17 @@ def posterior_umi_scatterplot_log2(predictions: list[Prediction], mm_lines: MMLi
 
     fig = plot_scatter(posteriors, umis, title="cleanser", x_label="Posterior", y_label="log2(UMI)")
 
+    return fig
+
+
+def prob_ecdf(predictions: list[Prediction], threshold: float) -> Figure:
+    fig = plot_ecdf(
+        [p.prediction for p in predictions],
+        threshold=threshold,
+        title="Cleanser",
+        x_label="Probability of assignment",
+        y_label="Count",
+    )
     return fig
 
 
@@ -311,6 +342,9 @@ def run_cli():
     coverage_text = f"Coverage: {coverage}"
     print(coverage_text)
     write(output_dir, "coverage.txt", coverage_text + "\n")
+
+    prob_ecdf(predictions, args.threshold)
+    plt.savefig(output_dir / Path("ecdf.png"))
 
     if args.guide_counts is not None:
         mm_lines = read_mm_file(args.guide_counts)
