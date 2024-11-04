@@ -95,3 +95,4 @@ options:
 - A scatterplot of UMI/posteriors
 - A scatterplot of UMI/posteriors with UMIs on a log2 scale
 - UMI histogram
+- eCDF plot of posteriors
