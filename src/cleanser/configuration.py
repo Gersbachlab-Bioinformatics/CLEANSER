@@ -2,7 +2,7 @@ import os.path
 import sys
 from collections.abc import Generator
 from enum import StrEnum
-from typing import TextIO
+from typing import Optional, TextIO
 
 import numpy as np
 import mudata as md
@@ -174,6 +174,8 @@ class MuDataConfiguration(Configuration):
 
 
 class MtxConfiguration(Configuration):
+    mm_header: Optional[str] = None
+
     def __init__(self, input, model, sample_output, posteriors_output):
         super().__init__(input, model, sample_output, posteriors_output)
         self.input_file = open(input, "r", encoding="utf8")
@@ -201,8 +203,9 @@ class MtxConfiguration(Configuration):
             if line.startswith("%"):
                 continue
 
-            # skip the first non-comment line. It's just dimension info we
-            # are ignoring
+            # store the first non-comment line. We'll re-use it
+            # in the output.
+            self.mm_header = line
             break
 
         for line in self.input_file:
@@ -210,6 +213,10 @@ class MtxConfiguration(Configuration):
             yield (guide, cell, int(count))
 
     def output_posteriors(self, guide_id, samples, cell_info):
+        if self.mm_header is not None:
+            self.posteriors_output_file.write(self.mm_header)
+            self.mm_header = None
+
         pzi = np.transpose(samples.stan_variable("PZi"))
         for i, (cell_id, _) in enumerate(cell_info):
             if self.output_all_posteriors:
