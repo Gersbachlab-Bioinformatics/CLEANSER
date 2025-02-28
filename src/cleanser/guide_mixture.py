@@ -11,6 +11,7 @@ from operator import itemgetter
 
 from cmdstanpy import CmdStanModel
 
+from .configuration import Configuration, MMLine
 from .constants import (
     DEFAULT_CHAINS,
     DEFAULT_NORM_LPF,
@@ -21,11 +22,10 @@ from .constants import (
     MAX_SEED_INT,
 )
 
-MMLines = list[tuple[str, str, int]]
 CountData = dict[str, float]
 
 
-def mm_counts(mtx_lines: MMLines, norm_lpf: int) -> tuple[dict[str, int], dict[str, list[tuple[str, int]]]]:
+def mm_counts(mtx_lines: list[MMLine], norm_lpf: int) -> tuple[dict[str, int], dict[str, list[tuple[str, int]]]]:
     cumulative_counts = {}
     per_guide_counts = defaultdict(lambda: [])
 
@@ -74,9 +74,8 @@ def run_stan(stan_args):
     return guide_id, fit
 
 
-async def run(
-    mm_lines: MMLines,
-    model_file: str,
+def run(
+    config: Configuration,
     chains: int = DEFAULT_CHAINS,
     normalization_lpf: int = DEFAULT_NORM_LPF,
     num_parallel_runs: int = DEFAULT_RUNS,
@@ -84,29 +83,26 @@ async def run(
     num_warmup: int = DEFAULT_WARMUP,
     seed: int = DEFAULT_SEED,
 ):
-    sorted_mm_lines = sorted(mm_lines, key=itemgetter(0, 1))
+    sorted_mm_lines = sorted(list(config.gen_data()), key=itemgetter(0, 1))
     cumulative_counts, per_guide_counts = mm_counts(sorted_mm_lines, normalization_lpf)
     normalized_counts = normalize(cumulative_counts)
 
-    stan_model = CmdStanModel(stan_file=files("cleanser").joinpath(model_file))
+    def stan_params():
+        for guide_id, guide_counts in per_guide_counts.items():
+            result = (
+                CmdStanModel(stan_file=files("cleanser").joinpath(config.model)),
+                guide_id,
+                [guide_count for _, guide_count in guide_counts],  # X
+                [normalized_counts[cell_id] for cell_id, _ in guide_counts],  # L
+                num_warmup,
+                num_samples,
+                chains,
+                (seed + int(guide_id)) % MAX_SEED_INT,
+            )
+            yield result
 
-    stan_params = [
-        (
-            stan_model,
-            guide_id,
-            [guide_count for _, guide_count in guide_counts],  # X
-            [normalized_counts[cell_id] for cell_id, _ in guide_counts],  # L
-            num_warmup,
-            num_samples,
-            chains,
-            (seed + int(guide_id)) % MAX_SEED_INT,
-        )
-        for guide_id, guide_counts in per_guide_counts.items()
-    ]
-
-    results = {}
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_parallel_runs) as executor:
-        for guide_id, samples in executor.map(run_stan, stan_params):
-            results[guide_id] = (samples, per_guide_counts[guide_id])
-
-    return results
+        for guide_id, samples in executor.map(run_stan, stan_params()):
+            config.collect_samples(guide_id, samples)
+            config.collect_stats(samples)
+            config.output_posteriors(guide_id, samples, per_guide_counts[guide_id])

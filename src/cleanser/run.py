@@ -1,13 +1,9 @@
 import argparse
 import asyncio
-import os.path
 import sys
 
-import numpy as np
-
+from .configuration import Model, MtxConfiguration, MuDataConfiguration
 from .constants import (
-    CS_MODEL_FILE,
-    DC_MODEL_FILE,
     DEFAULT_CHAINS,
     DEFAULT_NORM_LPF,
     DEFAULT_RUNS,
@@ -15,78 +11,7 @@ from .constants import (
     DEFAULT_SEED,
     DEFAULT_WARMUP,
 )
-from .guide_mixture import MMLines, run
-
-
-def read_mm_file(mtx_file) -> MMLines:
-    mm_lines = []
-    for line in mtx_file:
-        # Skip market matrix header/comments
-        if line.startswith("%"):
-            continue
-
-        # skip the first non-comment line. It's just dimension info we
-        # are ignoring
-        break
-
-    for line in mtx_file:
-        guide, cell, count = line.strip().split()
-        mm_lines.append((guide, cell, int(count)))
-
-    return mm_lines
-
-
-def output_posteriors(stan_results, output_file):
-    output_all_posteriors = True
-    if not os.path.isdir("posteriors"):
-        print("Please create a 'posteriors' directory if you want all posterior values saved.")
-        output_all_posteriors = False
-
-    for guide_id, (samples, cell_info) in stan_results.items():
-        pzi = np.transpose(samples.stan_variable("PZi"))
-        for i, (cell_id, _) in enumerate(cell_info):
-            if output_all_posteriors:
-                with open(f"posteriors/{guide_id}_{cell_id}.txt", "w", encoding="ascii") as post_out:
-                    post_out.write(f"{', '.join(str(n) for n in sorted(pzi[i]))}")
-
-            output_file.write(f"{guide_id}\t{cell_id}\t{np.median(pzi[i])}\n")
-
-
-def output_cs_samples(stan_results, output_file):
-    output_file.write("guide id\tr\tmu\tDisp\tlambda\n")
-    for guide_id, (samples, _) in stan_results.items():
-        r = samples.stan_variable("r")
-        mu = samples.stan_variable("nbMean")
-        disp = samples.stan_variable("nbDisp")
-        lamb = samples.stan_variable("lambda")
-        for i, r_samp in enumerate(r):
-            output_file.write(f"{guide_id}\t{r_samp}\t{mu[i]}\t{disp[i]}\t{lamb[i]}\n")
-
-
-def output_dc_samples(stan_results, output_file):
-    output_file.write("guide id\tr\tmu\tDisp\tn_nbMean\tn_nbDisp\n")
-    for guide_id, (samples, _) in stan_results.items():
-        r = samples.stan_variable("r")
-        mu = samples.stan_variable("nbMean")
-        disp = samples.stan_variable("nbDisp")
-        n_mean = samples.stan_variable("n_nbMean")
-        n_disp = samples.stan_variable("n_nbDisp")
-        for i, r_samp in enumerate(r):
-            output_file.write(f"{guide_id}\t{r_samp}\t{mu[i]}\t{disp[i]}\t{n_mean[i]}\t{n_disp[i]}\n")
-
-
-def output_cs_stats(results):
-    for _, (samples, _) in results.items():
-        print(
-            f"r={np.median(samples.stan_variable('r'))}\tmu={np.median(samples.stan_variable('nbMean'))}\tlambda={np.median(samples.stan_variable('lambda'))}"
-        )
-
-
-def output_dc_stats(results):
-    for _, (samples, _) in results.items():
-        print(
-            f"r={np.median(samples.stan_variable('r'))}\tmu={np.median(samples.stan_variable('nbMean'))}\tn_nbMean={np.median(samples.stan_variable('n_nbMean'))}\tn_nbDisp={np.median(samples.stan_variable('n_nbDisp'))}"
-        )
+from .guide_mixture import run
 
 
 def get_args():
@@ -98,23 +23,22 @@ def get_args():
     parser.add_argument(
         "-i",
         "--input",
-        help="Matrix Market file of guide library information",
-        type=argparse.FileType("r", encoding="utf-8"),
+        help="Matrix Market or MuData file of guide library information",
         required=True,
     )
     parser.add_argument(
         "-o",
         "--posteriors-output",
-        help="output file name of per-guide/cell posterior probabilities",
-        type=argparse.FileType("w", encoding="utf-8"),
-        default=sys.stdout,
+        help="output file name of per-guide/cell posterior probabilities. Not used for MuData inputs",
+        type=str,
+        default=None,
     )
     parser.add_argument(
         "--so",
         "--samples-output",
         help="output file name of sample data",
-        type=argparse.FileType("w", encoding="utf-8"),
-        default=sys.stdout,
+        type=str,
+        default=None,
     )
     parser.add_argument(
         "-n", "--num-samples", type=int, default=DEFAULT_SAMPLE, help="The number of samples to take of the model"
@@ -152,39 +76,56 @@ def get_args():
         action="store_true",
         help="Use crop-seq mixture model",
     )
+    mudata_group = parser.add_argument_group("MuData")
+    mudata_group.add_argument("--modality", help="The name of the MuData modality the guide information is in")
+    mudata_group.add_argument(
+        "--output-layer",
+        help="The name of the layer (under the same modality as the input) to put the posterior probability data in",
+    )
+    mudata_group.add_argument(
+        "--capture-method-key",
+        help="The key for accessing the capture method name from the modalities unstructured data",
+    )
 
     return parser.parse_args()
 
 
+def get_configuration(args):
+    input_filename = args.input
+    if args.dc:
+        model = Model.DC
+    elif args.cs:
+        model = Model.CS
+    match input_filename.split(".")[-1]:
+        case "mm" | "mtx":
+            # def __init__(self, input, model, sample_output, posteriors_output):
+            return MtxConfiguration(
+                input=args.input, model=model, sample_output=args.so, posteriors_output=args.posteriors_output
+            )  # matrix market
+        case "h5mu" | "h5ad" | "h5" | "hdf5" | "he5":
+            return MuDataConfiguration(
+                input=args.input, model=model, sample_output=args.so, posteriors_output=args.posteriors_output
+            )
+    raise ValueError("Invalid input file type. Please input uncompressed Matrix Market or MuData files only.")
+
+
 def run_cli():
     args = get_args()
-
-    if args.dc:
-        model_file = DC_MODEL_FILE
-    elif args.cs:
-        model_file = CS_MODEL_FILE
+    configuration = get_configuration(args)
 
     try:
-        mm_lines = read_mm_file(args.input)
-        results = asyncio.run(
-            run(
-                mm_lines,
-                model_file,
-                chains=args.chains,
-                normalization_lpf=args.normalization_lpf,
-                num_parallel_runs=args.parallel_runs,
-                num_samples=args.num_samples,
-                num_warmup=args.num_warmup,
-                seed=args.seed,
-            )
+        run(
+            configuration,
+            chains=args.chains,
+            normalization_lpf=args.normalization_lpf,
+            num_parallel_runs=args.parallel_runs,
+            num_samples=args.num_samples,
+            num_warmup=args.num_warmup,
+            seed=args.seed,
         )
-        if args.dc:
-            output_dc_samples(results, args.so)
-            output_dc_stats(results)
-        elif args.cs:
-            output_cs_samples(results, args.so)
-            output_cs_stats(results)
-        output_posteriors(results, args.posteriors_output)
+
+        configuration.output_samples()
+        configuration.output_stats()
 
         print(f"Random seed: {args.seed}")
     except KeyboardInterrupt:
