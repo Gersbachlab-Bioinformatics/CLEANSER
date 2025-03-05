@@ -28,7 +28,7 @@ def get_args():
     parser.add_argument(
         "-o",
         "--posteriors-output",
-        help="output file name of per-guide/cell posterior probabilities. Not used for MuData inputs",
+        help="output file name of per-guide/cell posterior probabilities. Required for MuData inputs (will be another MuData file)",
         type=str,
         default=None,
     )
@@ -62,7 +62,7 @@ def get_args():
         help="The upper limit for including the guide counts in guide count normalization. Set to 0 for no limit.",
         dest="normalization_lpf",
     )
-    model_group = parser.add_mutually_exclusive_group(required=True)
+    model_group = parser.add_mutually_exclusive_group()
     model_group.add_argument(
         "--dc",
         "--direct-capture",
@@ -85,26 +85,64 @@ def get_args():
         "--capture-method-key",
         help="The key for accessing the capture method name from the modalities unstructured data",
     )
-    parser.add_argument("-t", "--threshold", default=None, type=float)
+    parser.add_argument(
+        "-t", "--threshold", help="If set, the guide calls will be binarized at this cutoff", default=None, type=float
+    )
 
     return parser.parse_args()
 
 
 def get_configuration(args):
     input_filename = args.input
-    if args.dc:
-        model = Model.DC
-    elif args.cs:
-        model = Model.CS
     match input_filename.split(".")[-1]:
         case "mm" | "mtx":
-            # def __init__(self, input, model, sample_output, posteriors_output):
+            if args.dc:
+                model = Model.DC
+            elif args.cs:
+                model = Model.CS
+            else:
+                raise argparse.ArgumentError(
+                    argument=None, message="Exactly one of --direct-capture or --crop-seq arguments is required."
+                )
+
             return MtxConfiguration(
                 input=args.input, model=model, sample_output=args.so, posteriors_output=args.posteriors_output
             )  # matrix market
         case "h5mu" | "h5ad" | "h5" | "hdf5" | "he5":
+            if args.capture_method_key is None:
+                if args.dc:
+                    model = Model.DC
+                elif args.cs:
+                    model = Model.CS
+                else:
+                    raise argparse.ArgumentError(
+                        argument=None,
+                        message="Must specify either a capture method (--direct-capture or --crop-seq arguments) or the key to get the capture method from the mudata file.",
+                    )
+
+            else:
+                model = None
+
+            if args.modality is None:
+                raise argparse.ArgumentError(
+                    argument=None, message="The --modality argument is required for MuData files."
+                )
+
+            if args.output_layer is None:
+                raise argparse.ArgumentError(
+                    argument=None, message="The --output-layer argument is required for MuData files."
+                )
+
+            if args.posteriors_output is None:
+                raise argparse.ArgumentError(
+                    argument=None, message="The --posteriors-ouput argument is required for MuData files."
+                )
+
             return MuDataConfiguration(
                 input=args.input,
+                modality=args.modality,
+                capture_method=args.capture_method_key,
+                output_layer=args.output_layer,
                 model=model,
                 sample_output=args.so,
                 posteriors_output=args.posteriors_output,

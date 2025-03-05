@@ -133,19 +133,30 @@ class Configuration:
 
 
 class MuDataConfiguration(Configuration):
-    def __init__(self, input, model, sample_output, posteriors_output, threshold):
+    def __init__(
+        self, input, modality, capture_method, output_layer, model, sample_output, posteriors_output, threshold
+    ):
         super().__init__(input, model, sample_output, posteriors_output)
         self.input_file = md.read(input)
-        self.guides = self.input_file["guide"]
-        analysis = self.guides.uns.get("capture_method")
-        if analysis is not None:
-            if analysis[0] == "CROP-seq":
-                self.model = Model.CS
-            elif analysis[0] == "direct capture":
-                self.model = Model.DC
+        self.guides = self.input_file[modality]
+        if model is None:
+            analysis = self.guides.uns.get(capture_method)
+            if analysis is not None:
+                if analysis[0] == "CROP-seq":
+                    self.model = Model.CS
+                elif analysis[0] == "direct capture":
+                    self.model = Model.DC
+        else:
+            self.model = model
+        self.output_layer = output_layer
         self.output_matrix = dok_matrix(self.guides.X.shape)
         self.posteriors_output_file = posteriors_output
         self.threshold = threshold
+
+        if threshold is None:
+            self.collect_posteriors = self._raw_collect
+        else:
+            self.collect_posteriors = self._threshold_collect
 
     def __del__(self):
         if getattr(self.sample_output_file, "close", None) is not None:
@@ -156,18 +167,19 @@ class MuDataConfiguration(Configuration):
         for key, guide_count in guide_count_array.items():
             yield (key[1], key[0], int(guide_count))
 
-    def collect_posteriors(self, guide_id, samples, cell_info):
+    def _raw_collect(self, guide_id, samples, cell_info):
         pzi = np.transpose(samples.stan_variable("PZi"))
-        if self.threshold is None:
-            for i, (cell_id, _) in enumerate(cell_info):
-                self.output_matrix[cell_id, guide_id] = np.median(pzi[i])
-        else:
-            for i, (cell_id, _) in enumerate(cell_info):
-                if np.median(pzi[i]) >= self.threshold:
-                    self.output_matrix[cell_id, guide_id] = 1
+        for i, (cell_id, _) in enumerate(cell_info):
+            self.output_matrix[cell_id, guide_id] = np.median(pzi[i])
+
+    def _threshold_collect(self, guide_id, samples, cell_info):
+        pzi = np.transpose(samples.stan_variable("PZi"))
+        for i, (cell_id, _) in enumerate(cell_info):
+            if np.median(pzi[i]) >= self.threshold:
+                self.output_matrix[cell_id, guide_id] = 1
 
     def output_posteriors(self):
-        self.guides.layers["guide_assignment"] = self.output_matrix.tocsr()
+        self.guides.layers[self.output_layer] = self.output_matrix.tocsr()
         md.write(self.posteriors_output_file, self.input_file)
 
 
