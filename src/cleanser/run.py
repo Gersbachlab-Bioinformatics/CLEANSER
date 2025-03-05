@@ -1,5 +1,4 @@
 import argparse
-import asyncio
 import sys
 
 from .configuration import Model, MtxConfiguration, MuDataConfiguration
@@ -86,6 +85,7 @@ def get_args():
         "--capture-method-key",
         help="The key for accessing the capture method name from the modalities unstructured data",
     )
+    parser.add_argument("-t", "--threshold", default=None, type=float)
 
     return parser.parse_args()
 
@@ -104,7 +104,11 @@ def get_configuration(args):
             )  # matrix market
         case "h5mu" | "h5ad" | "h5" | "hdf5" | "he5":
             return MuDataConfiguration(
-                input=args.input, model=model, sample_output=args.so, posteriors_output=args.posteriors_output
+                input=args.input,
+                model=model,
+                sample_output=args.so,
+                posteriors_output=args.posteriors_output,
+                threshold=args.threshold,
             )
     raise ValueError("Invalid input file type. Please input uncompressed Matrix Market or MuData files only.")
 
@@ -125,6 +129,7 @@ def run_cli():
         )
 
         configuration.output_samples()
+        configuration.output_posteriors()
         configuration.output_stats()
 
         print(f"Random seed: {args.seed}")

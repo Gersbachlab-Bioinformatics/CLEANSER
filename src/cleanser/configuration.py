@@ -43,10 +43,10 @@ class Configuration:
     def gen_data(self) -> MMData:
         raise NotImplementedError("This is an abstract method")
 
-    def output_sample(self, guide_id, samples):
+    def collect_posteriors(self, guide_id, samples, cell_info):
         raise NotImplementedError("This is an abstract method")
 
-    def output_posteriors(self, guide_id, samples, cell_info):
+    def output_posteriors(self):
         raise NotImplementedError("This is an abstract method")
 
     def collect_samples(self, guide_id, samples):
@@ -133,44 +133,42 @@ class Configuration:
 
 
 class MuDataConfiguration(Configuration):
-    def __init__(self, input, model, sample_output, posteriors_output):
-        self.file = md.read(input)
-        if args.dc:
-            self.model = Model.DC
-        elif args.cs:
-            self.model = Model.CS
-        self.sample_output_file = open(sample_output, "w", encoding="utf8")
+    def __init__(self, input, model, sample_output, posteriors_output, threshold):
+        super().__init__(input, model, sample_output, posteriors_output)
+        self.input_file = md.read(input)
+        self.guides = self.input_file["guide"]
+        analysis = self.guides.uns.get("capture_method")
+        if analysis is not None:
+            if analysis[0] == "CROP-seq":
+                self.model = Model.CS
+            elif analysis[0] == "direct capture":
+                self.model = Model.DC
+        self.output_matrix = dok_matrix(self.guides.X.shape)
         self.posteriors_output_file = posteriors_output
-        # md.write(args.output, mu_input)
+        self.threshold = threshold
 
-    def posteriors_layer(self, stan_results, array, threshold=None):
-        if threshold is None:
-            for guide_id, (samples, cell_info) in stan_results.items():
-                pzi = np.transpose(samples.stan_variable("PZi"))
-                for i, (cell_id, _) in enumerate(cell_info):
-                    array[cell_id, guide_id] = np.median(pzi[i])
+    def __del__(self):
+        if getattr(self.sample_output_file, "close", None) is not None:
+            self.sample_output_file.close()
+
+    def gen_data(self) -> MMData:
+        guide_count_array = self.guides.X.todok()
+        for key, guide_count in guide_count_array.items():
+            yield (key[1], key[0], int(guide_count))
+
+    def collect_posteriors(self, guide_id, samples, cell_info):
+        pzi = np.transpose(samples.stan_variable("PZi"))
+        if self.threshold is None:
+            for i, (cell_id, _) in enumerate(cell_info):
+                self.output_matrix[cell_id, guide_id] = np.median(pzi[i])
         else:
-            for guide_id, (samples, cell_info) in stan_results.items():
-                pzi = np.transpose(samples.stan_variable("PZi"))
-                for i, (cell_id, _) in enumerate(cell_info):
-                    if np.median(pzi[i]) >= threshold:
-                        array[cell_id, guide_id] = 1
+            for i, (cell_id, _) in enumerate(cell_info):
+                if np.median(pzi[i]) >= self.threshold:
+                    self.output_matrix[cell_id, guide_id] = 1
 
-        return array.tocsr()
-
-    def cleanser_posteriors(self, guides, threshold):
-        guide_count_array = guides.X.todok()
-        counts = [(key[1], key[0], int(guide_count)) for key, guide_count in guide_count_array.items()]
-        analysis = guides.uns.get("capture_method")
-        if analysis is None or analysis[0] == "CROP-seq":
-            model = CS_MODEL_FILE
-        elif analysis == "direct capture":
-            model = DC_MODEL_FILE
-        else:
-            raise ValueError("Invalid capture method type")
-
-        results = asyncio.run(run_cleanser(counts, model))
-        return posteriors_layer(results, dok_matrix(guides.X.shape), threshold)
+    def output_posteriors(self):
+        self.guides.layers["guide_assignment"] = self.output_matrix.tocsr()
+        md.write(self.posteriors_output_file, self.input_file)
 
 
 class MtxConfiguration(Configuration):
@@ -188,13 +186,10 @@ class MtxConfiguration(Configuration):
         self.output_all_posteriors = os.path.isdir("posteriors")
 
     def __del__(self):
-        if not self.output_all_posteriors:
-            print("Please create a 'posteriors' directory if you want all posterior values saved.")
-
         self.input_file.close()
-        if self.sample_output_file != sys.stdout:
+        if getattr(self.sample_output_file, "close", None) is not None:
             self.sample_output_file.close()
-        if self.posteriors_output_file != sys.stdout:
+        if getattr(self.posteriors_output_file, "close", None) is not None:
             self.posteriors_output_file.close()
 
     def gen_data(self) -> MMData:
@@ -212,7 +207,7 @@ class MtxConfiguration(Configuration):
             guide, cell, count = line.strip().split()
             yield (guide, cell, int(count))
 
-    def output_posteriors(self, guide_id, samples, cell_info):
+    def collect_posteriors(self, guide_id, samples, cell_info):
         if self.mm_header is not None:
             self.posteriors_output_file.write(self.mm_header)
             self.mm_header = None
@@ -224,3 +219,7 @@ class MtxConfiguration(Configuration):
                     post_out.write(f"{', '.join(str(n) for n in sorted(pzi[i]))}")
 
             self.posteriors_output_file.write(f"{guide_id}\t{cell_id}\t{np.median(pzi[i])}\n")
+
+    def output_posteriors(self):
+        if not self.output_all_posteriors:
+            print("Please create a 'posteriors' directory if you want all posterior values saved.")

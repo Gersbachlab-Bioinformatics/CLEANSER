@@ -5,6 +5,7 @@
 # =========================================================================
 
 import concurrent.futures
+import os
 from collections import defaultdict
 from importlib.resources import files
 from operator import itemgetter
@@ -71,7 +72,20 @@ def run_stan(stan_args):
         seed=seed,
         show_progress=False,
     )
+
     return guide_id, fit
+
+
+def delete_temp_files(samples):
+    # CmdStan will leave the temp files it generates around until the python process exists
+    # (Using the tempfile module). Because we are reusing the same python processes in the process
+    # pool the whole run these temp files will really pile up, using possibly hundreds of GB of
+    # space.
+    #
+    # This method deletes the temp files manually so we don't have that problem.
+
+    for file in samples.runset.csv_files:
+        os.remove(file)
 
 
 def run(
@@ -105,4 +119,6 @@ def run(
         for guide_id, samples in executor.map(run_stan, stan_params()):
             config.collect_samples(guide_id, samples)
             config.collect_stats(samples)
-            config.output_posteriors(guide_id, samples, per_guide_counts[guide_id])
+            config.collect_posteriors(guide_id, samples, per_guide_counts[guide_id])
+
+            delete_temp_files(samples)
