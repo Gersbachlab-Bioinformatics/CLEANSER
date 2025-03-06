@@ -135,7 +135,7 @@ def get_configuration(args):
 
             if args.posteriors_output is None:
                 raise argparse.ArgumentError(
-                    argument=None, message="The --posteriors-ouput argument is required for MuData files."
+                    argument=None, message="The --posteriors-output argument is required for MuData files."
                 )
 
             return MuDataConfiguration(
