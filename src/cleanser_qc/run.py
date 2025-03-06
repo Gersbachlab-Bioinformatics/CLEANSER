@@ -11,7 +11,7 @@ from typing import cast
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
-from cleanser.run import MMLines, read_mm_file
+from .configuration import Configuration, MtxConfiguration, MuDataConfiguration
 
 
 @dataclass
@@ -35,14 +35,6 @@ class CSSampleMetadata:
     mu: float
     dispersion: float
     lamb: float  # lambda
-
-
-@dataclass
-class Prediction:
-    "CLEANSER Prediction for a guide/cell pair"
-    guide_id: str
-    cell_id: str
-    prediction: float
 
 
 def per_guide_sample_stats(
@@ -195,42 +187,44 @@ def sample_mean_histogram(means: list[CSSampleMetadata] | list[DCSampleMetadata]
     return fig
 
 
-def assigned_counts_histogram(predictions: list[Prediction], mm_lines: MMLines, threshold: float) -> Figure:
-    thresholded_preds = {(p.guide_id, p.cell_id) for p in predictions if p.prediction >= threshold}
-    umis = [umi for guide_id, cell_id, umi in mm_lines if (guide_id, cell_id) in thresholded_preds]
+def assigned_counts_histogram(config: Configuration, threshold: float) -> Figure:
+    thresholded_preds = {
+        (guide_id, cell_id)
+        for (guide_id, cell_id, prediction) in config.gen_posteriors_data()
+        if prediction >= threshold
+    }
+    umis = [umi for guide_id, cell_id, umi in config.gen_count_data() if (guide_id, cell_id) in thresholded_preds]
     fig = plot_hist(umis, 100, title="cleanser", x_label="UMI", y_label="count")
     return fig
 
 
-def posterior_umi_scatterplot(predictions: list[Prediction], mm_lines: MMLines) -> Figure:
-    umi_keys = [(p.guide_id, p.cell_id) for p in predictions]
-    posteriors = [p.prediction for p in predictions]
+def posterior_umi_scatterplot(config: Configuration) -> Figure:
+    posteriors = [prediction for (_, _, prediction) in config.gen_posteriors_data()]
 
     # order the umis to match the posteriors
-    umi_dict = {(guide_id, cell_id): umi for guide_id, cell_id, umi in mm_lines}
-    umis = [umi_dict[k] for k in umi_keys]
+    umi_dict = {(guide_id, cell_id): umi for guide_id, cell_id, umi in config.gen_count_data()}
+    umis = [umi_dict[(guide_id, cell_id)] for (guide_id, cell_id, _) in config.gen_posteriors_data()]
 
     fig = plot_scatter(posteriors, umis, title="cleanser", x_label="Posterior", y_label="UMI")
 
     return fig
 
 
-def posterior_umi_scatterplot_log2(predictions: list[Prediction], mm_lines: MMLines) -> Figure:
-    umi_keys = [(p.guide_id, p.cell_id) for p in predictions]
-    posteriors = [p.prediction for p in predictions]
+def posterior_umi_scatterplot_log2(config: Configuration) -> Figure:
+    posteriors = [prediction for (_, _, prediction) in config.gen_posteriors_data()]
 
     # order the umis to match the posteriors
-    umi_dict = {(guide_id, cell_id): log2(umi) for guide_id, cell_id, umi in mm_lines}
-    umis = [umi_dict[k] for k in umi_keys]
+    umi_dict = {(guide_id, cell_id): log2(umi) for guide_id, cell_id, umi in config.gen_count_data()}
+    umis = [umi_dict[(guide_id, cell_id)] for (guide_id, cell_id, _) in config.gen_posteriors_data()]
 
     fig = plot_scatter(posteriors, umis, title="cleanser", x_label="Posterior", y_label="log2(UMI)")
 
     return fig
 
 
-def prob_ecdf(predictions: list[Prediction], threshold: float) -> Figure:
+def prob_ecdf(config: Configuration, threshold: float) -> Figure:
     fig = plot_ecdf(
-        [p.prediction for p in predictions],
+        [prediction for (_, _, prediction) in config.gen_posteriors_data()],
         threshold=threshold,
         title="Cleanser",
         x_label="Probability of assignment",
@@ -239,32 +233,26 @@ def prob_ecdf(predictions: list[Prediction], threshold: float) -> Figure:
     return fig
 
 
-def calc_moi(predictions: list[Prediction], threshold: float) -> float:
+def calc_moi(config: Configuration, threshold: float) -> float:
     cells = set()
     predict_count = 0
-    for prediction in predictions:
-        cells.add(prediction.cell_id)
-        if prediction.prediction >= threshold:
+    for _, cell_id, prediction in config.gen_posteriors_data():
+        cells.add(cell_id)
+        if prediction >= threshold:
             predict_count += 1
 
     return predict_count / len(cells)
 
 
-def calc_coverage(predictions: list[Prediction], threshold: float) -> float:
+def calc_coverage(config: Configuration, threshold: float) -> float:
     guides = set()
     predict_count = 0
-    for prediction in predictions:
-        guides.add(prediction.guide_id)
-        if prediction.prediction >= threshold:
+    for guide_id, _, prediction in config.gen_posteriors_data():
+        guides.add(guide_id)
+        if prediction >= threshold:
             predict_count += 1
 
     return predict_count / len(guides)
-
-
-def read_predictions(input_file) -> list[Prediction]:
-    reader = csv.reader(input_file, delimiter="\t")
-
-    return [Prediction(guide_id=l[0], cell_id=l[1], prediction=float(l[2])) for l in reader]
 
 
 def read_sample_data(sample_data_file) -> list[CSSampleMetadata] | list[DCSampleMetadata]:
@@ -294,16 +282,37 @@ def read_sample_data(sample_data_file) -> list[CSSampleMetadata] | list[DCSample
     raise ValueError("Invalid sample data file")
 
 
+def get_configuration(args):
+    input_filename = args.input
+    match input_filename.split(".")[-1]:
+        case "mm" | "mtx":
+            # model is irrelevant
+            return MtxConfiguration(posterior_input=args.input, count_input=args.guide_counts)  # matrix market
+        case "h5mu" | "h5ad" | "h5" | "hdf5" | "he5":
+            if args.modality is None:
+                raise argparse.ArgumentError(
+                    argument=None, message="The --modality argument is required for MuData files."
+                )
+
+            if args.posteriors_layer is None:
+                raise argparse.ArgumentError(
+                    argument=None, message="The --posteriors-layer argument is required for MuData files."
+                )
+
+            return MuDataConfiguration(
+                posterior_input=args.input,
+                count_input=args.guide_counts,
+                modality=args.modality,
+                posteriors_layer=args.posteriors_layer,
+            )
+    raise ValueError("Invalid input file type. Please input uncompressed Matrix Market or MuData files only.")
+
+
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate CLEANSER QC information")
-    parser.add_argument("-i", "--input", type=argparse.FileType(), help="Cleanser posterior output file", required=True)
+    parser.add_argument("-i", "--input", type=str, help="Cleanser posterior output file", required=True)
     parser.add_argument("-o", "--output-directory", help="Cleanser QC output directory", required=True)
-    parser.add_argument(
-        "-g",
-        "--guide-counts",
-        type=argparse.FileType(),
-        help="Guide count file. Needed for UMI histogram and scatterplots",
-    )
+
     parser.add_argument(
         "-s",
         "--samples",
@@ -312,6 +321,21 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "-t", "--threshold", type=float, default=0.0, help="Disregard assignment probabilities below this value"
+    )
+
+    mudata_group = parser.add_argument_group("Matrix Market")
+    parser.add_argument(
+        "-g",
+        "--guide-counts",
+        type=str,
+        help="Guide count file. Needed for UMI histogram and scatterplots",
+    )
+
+    mudata_group = parser.add_argument_group("MuData")
+    mudata_group.add_argument("--modality", help="The name of the MuData modality the guide information is in")
+    mudata_group.add_argument(
+        "--posteriors-layer",
+        help="The name of the layer (under the same modality as the input) to put the posterior probability data in",
     )
 
     return parser.parse_args()
@@ -326,35 +350,35 @@ def write(output_dir, filename, contents):
 def run_cli():
     args = get_args()
 
+    config = get_configuration(args)
+
     output_dir = Path(args.output_directory)
     if not output_dir.exists():
         output_dir.mkdir()
     elif not output_dir.is_dir():
         raise ValueError(f"Output directory {output_dir} must be a directory")
 
-    predictions = read_predictions(args.input)
-    moi = calc_moi(predictions, args.threshold)
+    moi = calc_moi(config, args.threshold)
     moi_text = f"MOI: {moi}"
     print(moi_text)
     write(output_dir, "moi.txt", moi_text + "\n")
 
-    coverage = calc_coverage(predictions, args.threshold)
+    coverage = calc_coverage(config, args.threshold)
     coverage_text = f"Coverage: {coverage}"
     print(coverage_text)
     write(output_dir, "coverage.txt", coverage_text + "\n")
 
-    prob_ecdf(predictions, args.threshold)
+    prob_ecdf(config, args.threshold)
     plt.savefig(output_dir / Path("ecdf.png"))
 
     if args.guide_counts is not None:
-        mm_lines = read_mm_file(args.guide_counts)
-        assigned_counts_histogram(predictions, mm_lines, args.threshold)
+        assigned_counts_histogram(config, args.threshold)
         plt.savefig(output_dir / Path("umi_hist.png"))
 
-        posterior_umi_scatterplot(predictions, mm_lines)
+        posterior_umi_scatterplot(config)
         plt.savefig(output_dir / Path("umi_count_scatter.png"))
 
-        posterior_umi_scatterplot_log2(predictions, mm_lines)
+        posterior_umi_scatterplot_log2(config)
         plt.savefig(output_dir / Path("umi_count_scatter_log2.png"))
 
     if args.samples is not None:
