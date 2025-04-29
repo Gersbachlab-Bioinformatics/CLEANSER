@@ -96,3 +96,9 @@ options:
 - A scatterplot of UMI/posteriors with UMIs on a log2 scale
 - UMI histogram
 - eCDF plot of posteriors
+
+## Citation
+If you use CLEANSER in your reseach, please cite:
+> Liu S, Hamilton MC, Cowart T, Barrera A, Bounds LR, Nelson AC, Dornbaum SF, Riley JW, Doty RW, Allen AS, Crawford GE, Majoros WH, Gersbach CA. Characterization and bioinformatic filtering of ambient gRNAs in single-cell CRISPR screens using CLEANSER. Cell Genom. 2025 Feb 12;5(2):100766. doi: 10.1016/j.xgen.2025.100766. Epub 2025 Feb 5. PMID: 39914388; PMCID: PMC11872138.
+
+The `main` branch should be preferentially used, but if you want to use the closest version of the software that was used in the manuscript above, please use the [v0.1](https://github.com/Gersbachlab-Bioinformatics/CLEANSER/tree/v0.1) branch.
