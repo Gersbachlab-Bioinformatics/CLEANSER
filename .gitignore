@@ -6,3 +6,10 @@ __pycache__
 src/cleanser/build
 post
 posteriors
+
+# VS Code settings
+.vscode/
+
+# STAN compiled files 
+src/cleanser/cs-guide-mixture
+src/cleanser/dc-guide-mixture
