@@ -165,8 +165,8 @@ def run_cli():
             num_warmup=args.num_warmup,
             seed=args.seed,
         )
-
-        configuration.output_samples()
+        if args.so is not None:
+            configuration.output_samples()
         configuration.output_posteriors()
         configuration.output_stats()
 
