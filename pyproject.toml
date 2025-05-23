@@ -7,7 +7,10 @@ authors = [
 description = "Crispr Library Evaluation and Ambient Noise Suppression for Enhanced scRNA-seq"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT License" }
+license = "MIT"
+license-files = [
+    "LICENSE",
+]
 classifiers = ["Programming Language :: Python :: 3"]
 dependencies = [
     "cmdstanpy==1.2",

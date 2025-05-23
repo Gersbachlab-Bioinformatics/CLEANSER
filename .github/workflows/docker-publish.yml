@@ -43,5 +43,5 @@ jobs:
 
       - name: Push Docker images
         run: |
-          docker push ghcr.io/${{ github.repository }}:latest
-          docker push ghcr.io/${{ github.repository }}:${{ steps.get_version.outputs.version }}
+          docker push ghcr.io/${{ steps.repo_name.outputs.repo_lower }}:latest
+          docker push ghcr.io/${{ steps.repo_name.outputs.repo_lower }}:${{ steps.get_version.outputs.version }}
