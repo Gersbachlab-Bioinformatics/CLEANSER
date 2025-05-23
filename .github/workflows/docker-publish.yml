@@ -30,11 +30,16 @@ jobs:
           VERSION=$(grep '^version =' pyproject.toml | sed -E "s/version = \"([^\"]+)\"/\1/")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Set lowercase repository name
+        id: repo_name
+        run: |
+          echo "repo_lower=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Build Docker image with multiple tags
         run: |
           docker build \
-            -t ghcr.io/${{ github.repository }}:latest \
-            -t ghcr.io/${{ github.repository }}:${{ steps.get_version.outputs.version }} .
+            -t ghcr.io/${{ steps.repo_name.outputs.repo_lower }}:latest \
+            -t ghcr.io/${{ steps.repo_name.outputs.repo_lower }}:${{ steps.get_version.outputs.version }} .
 
       - name: Push Docker images
         run: |
