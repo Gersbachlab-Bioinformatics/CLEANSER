@@ -1,15 +1,54 @@
+# Build and distribution folders
 dist/
 build/
 CLEANSER.egg-info
+src/cleanser/build
+src/cleanser/cs-guide-mixture
+src/cleanser/dc-guide-mixture
+
+# Python bytecode and cache
 *.pyc
 __pycache__
-src/cleanser/build
+*.pyo
+*.pyd
+
+# Project-specific folders and files
 post
 posteriors
 
-# VS Code settings
+# IDE/editor settings
 .vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
 
-# STAN compiled files 
-src/cleanser/cs-guide-mixture
-src/cleanser/dc-guide-mixture
+# Environment and configuration files
+.env
+*.env
+
+# Log and database files
+*.log
+*.sqlite3
+*.db
+*.coverage
+
+# macOS system files
+.DS_Store
+
+# Node.js dependencies
+node_modules/
+
+# Python packaging
+*.egg
+*.egg-info/
+
+# Cache and backup files
+.cache/
+*.swp
+*.bak
+*.tmp
+*.orig
+*.~*
+
+# Jupyter Notebook checkpoints
+*.ipynb_checkpoints
