@@ -1,3 +1,5 @@
+[![Docker Publish](https://github.com/Gersbachlab-Bioinformatics/CLEANSER/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Gersbachlab-Bioinformatics/CLEANSER/actions/workflows/docker-publish.yml)
+
 # CLEANSER
 
 **C**rispr **L**ibrary **E**valuation and **A**mbient **N**oise **S**uppression for **E**nhanced sc**R**NA-seq
