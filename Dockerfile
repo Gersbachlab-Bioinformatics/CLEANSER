@@ -8,8 +8,14 @@ WORKDIR /cleanser
 
 COPY . .
 
-RUN pip install build
-RUN python -m build .
-RUN pip install dist/*.whl
-RUN install_cmdstan
+ENV CMDSTAN_VERSION=2.36.0
 
+RUN pip install --no-cache-dir build && \
+    python -m build . && \
+    pip install --no-cache-dir dist/*.whl && \
+    install_cmdstan --version ${CMDSTAN_VERSION}
+
+# Compile STAN models
+RUN cd /root/.cmdstan/cmdstan-${CMDSTAN_VERSION} && \
+    make /usr/local/lib/python3.11/site-packages/cleanser/cs-guide-mixture && \
+    make /usr/local/lib/python3.11/site-packages/cleanser/dc-guide-mixture
