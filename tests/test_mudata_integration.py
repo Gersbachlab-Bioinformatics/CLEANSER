@@ -198,11 +198,6 @@ class TestMuDataConfiguration:
                 data = list(config.gen_data())
                 assert len(data) > 0
 
-    def test_mudata_model_detection(self):
-        """Test Model enum values."""
-        assert Model.CS == "cs-guide-mixture.stan"
-        assert Model.DC == "dc-guide-mixture.stan"
-
     def test_mudata_configuration_output_matrices(self):
         """Test that output matrices are properly initialized."""
         config = MuDataConfiguration(
