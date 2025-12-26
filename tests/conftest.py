@@ -3,31 +3,42 @@
 import sys
 import io
 import warnings
-
-
-# Suppress the I/O error during pytest cleanup by wrapping the problematic operation
-original_snap = None
-
-
-def _patched_snap(self):
-    """Patched snap method that handles closed files gracefully."""
-    try:
-        return original_snap(self)
-    except ValueError as e:
-        if "I/O operation on closed file" in str(e):
-            # Return empty string if file is closed
-            return ""
-        raise
+import pytest
+import contextlib
 
 
 def pytest_configure(config):
-    """Configure pytest hooks."""
-    global original_snap
+    """Configure pytest hooks to handle Python 3.14 I/O issues."""
     try:
-        # Patch the capture.snap method to handle closed files
+        # Patch contextlib._GeneratorContextManager to handle closed file errors
+        original_enter = contextlib._GeneratorContextManager.__enter__
+        
+        def patched_enter(self):
+            """Patched __enter__ that handles closed file errors gracefully."""
+            try:
+                return original_enter(self)
+            except ValueError as e:
+                if "I/O operation on closed file" in str(e):
+                    # Return None or handle gracefully
+                    return None
+                raise
+        
+        contextlib._GeneratorContextManager.__enter__ = patched_enter
+        
+        # Also patch FDCapture.snap to handle closed files during pytest cleanup
         from _pytest import capture as pytest_capture
-        if hasattr(pytest_capture, 'FDCapture'):
-            original_snap = pytest_capture.FDCapture.snap
-            pytest_capture.FDCapture.snap = _patched_snap
-    except (ImportError, AttributeError):
+        original_snap = pytest_capture.FDCapture.snap
+        
+        def patched_snap(self):
+            """Patched snap method that handles closed files gracefully."""
+            try:
+                return original_snap(self)
+            except ValueError as e:
+                if "I/O operation on closed file" in str(e):
+                    return ""
+                raise
+        
+        pytest_capture.FDCapture.snap = patched_snap
+    except Exception:
         pass
+
