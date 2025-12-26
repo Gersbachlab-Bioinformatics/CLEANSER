@@ -86,7 +86,10 @@ def get_args():
         help="The key for accessing the capture method name from the modalities unstructured data",
     )
     parser.add_argument(
-        "-t", "--threshold", help="If set, the guide calls will be binarized at this cutoff", default=None, type=float
+        "-t", "--threshold", help="If set, the guide calls will be binarized at this cutoff. When using MuData files, " \
+        "a new layer with the posterior probabilities will be added. For backwards compatibility, the '--output-layer' " \
+        "will have the binarized assignments, and a new layer ending with `_posterior` will contain the posterior probabilities.", 
+        default=None, type=float
     )
 
     return parser.parse_args()
@@ -173,3 +176,6 @@ def run_cli():
         print(f"Random seed: {args.seed}")
     except KeyboardInterrupt:
         sys.exit(1)
+
+if __name__ == "__main__":
+    run_cli()

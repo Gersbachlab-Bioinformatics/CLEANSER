@@ -156,16 +156,25 @@ class MuDataConfiguration(Configuration):
         if threshold is None:
             self.collect_posteriors = self._raw_collect
         else:
-            self.collect_posteriors = self._threshold_collect
-
+            self.output_binary_matrix = dok_matrix(self.guides.X.shape)
+            self.collect_posteriors = self._raw_and_threshold_collect
+                            
     def __del__(self):
-        if getattr(self.sample_output_file, "close", None) is not None:
-            self.sample_output_file.close()
+        sample_output_file = getattr(self, "sample_output_file", None)
+        if sample_output_file is not None and getattr(sample_output_file, "close", None) is not None:
+            sample_output_file.close()
 
     def gen_data(self) -> MMData:
         guide_count_array = self.guides.X.todok()
         for key, guide_count in guide_count_array.items():
             yield (key[1], key[0], int(guide_count))
+
+    def _raw_and_threshold_collect(self, guide_id, samples, cell_info):
+        pzi = np.transpose(samples.stan_variable("PZi"))
+        for i, (cell_id, _) in enumerate(cell_info):
+            self.output_matrix[cell_id, guide_id] = np.median(pzi[i])
+            if np.median(pzi[i]) >= self.threshold:
+                self.output_binary_matrix[cell_id, guide_id] = 1
 
     def _raw_collect(self, guide_id, samples, cell_info):
         pzi = np.transpose(samples.stan_variable("PZi"))
@@ -179,7 +188,11 @@ class MuDataConfiguration(Configuration):
                 self.output_matrix[cell_id, guide_id] = 1
 
     def output_posteriors(self):
-        self.guides.layers[self.output_layer] = self.output_matrix.tocsr()
+        if self.threshold is not None:
+            self.guides.layers[self.output_layer] = self.output_binary_matrix.tocsr()
+            self.guides.layers[f"{self.output_layer}_posteriors"] = self.output_matrix.tocsr()
+        else:
+            self.guides.layers[self.output_layer] = self.output_matrix.tocsr()
         md.write(self.posteriors_output_file, self.input_file)
 
 
@@ -198,11 +211,15 @@ class MtxConfiguration(Configuration):
         self.output_all_posteriors = os.path.isdir("posteriors")
 
     def __del__(self):
-        self.input_file.close()
-        if getattr(self.sample_output_file, "close", None) is not None:
-            self.sample_output_file.close()
-        if getattr(self.posteriors_output_file, "close", None) is not None:
-            self.posteriors_output_file.close()
+        input_file = getattr(self, "input_file", None)
+        if input_file is not None:
+            input_file.close()
+        sample_output_file = getattr(self, "sample_output_file", None)
+        if sample_output_file is not None and getattr(sample_output_file, "close", None) is not None:
+            sample_output_file.close()
+        posteriors_output_file = getattr(self, "posteriors_output_file", None)
+        if posteriors_output_file is not None and getattr(posteriors_output_file, "close", None) is not None:
+            posteriors_output_file.close()
 
     def gen_data(self) -> MMData:
         for line in self.input_file:
