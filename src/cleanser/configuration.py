@@ -8,10 +8,7 @@ import numpy as np
 import mudata as md
 from scipy.sparse import dok_matrix
 
-from .constants import (
-    CS_MODEL_FILE,
-    DC_MODEL_FILE,
-)
+from . import constants
 
 __all__ = ["Model", "MtxConfiguration", "MuDataConfiguration"]
 
@@ -20,8 +17,8 @@ MMData = Generator[MMLine, None, None]
 
 
 class Model(StrEnum):
-    CS = CS_MODEL_FILE
-    DC = DC_MODEL_FILE
+    CS = constants.CS_MODEL_FILE
+    DC = constants.DC_MODEL_FILE
 
 
 class Configuration:
@@ -190,7 +187,7 @@ class MuDataConfiguration(Configuration):
     def output_posteriors(self):
         if self.threshold is not None:
             self.guides.layers[self.output_layer] = self.output_binary_matrix.tocsr()
-            self.guides.layers[f"{self.output_layer}_posteriors"] = self.output_matrix.tocsr()
+            self.guides.layers[f"{self.output_layer}_{constants.MUDATA_POSTERIORS_LAYER_SUFFIX}"] = self.output_matrix.tocsr()
         else:
             self.guides.layers[self.output_layer] = self.output_matrix.tocsr()
         md.write(self.posteriors_output_file, self.input_file)
