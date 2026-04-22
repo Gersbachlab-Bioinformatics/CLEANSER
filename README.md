@@ -17,13 +17,15 @@ CLEANSER depends on something called [CmdStan](https://mc-stan.org/docs/cmdstan-
 ## Usage
 
     cleanser [-h] -i INPUT [-o POSTERIORS_OUTPUT] [--so SO] [-n NUM_SAMPLES] [-w NUM_WARMUP] [-s SEED] [-c CHAINS]
-                        [-p PARALLEL_RUNS] [--lpf NORMALIZATION_LPF] (--dc | --cs)
+                        [-p PARALLEL_RUNS] [--lpf NORMALIZATION_LPF] [--dc | --cs]
+                        [--modality MODALITY] [--output-layer OUTPUT_LAYER]
+                        [--capture-method-key CAPTURE_METHOD_KEY] [-t THRESHOLD]
 
 `-h`, `--help`: show the help message and exit
 
-`-i INPUT`, `--input INPUT`: Matrix Market file of [guide library information](#input-file-format)
+`-i INPUT`, `--input INPUT`: Matrix Market (`.mm`, `.mtx`) or MuData (`.h5mu`) file of [guide library information](#input-file-format)
 
-`-o POSTERIORS_OUTPUT`, `--posteriors-output POSTERIORS_OUTPUT`: output file name of per-guide/cell posterior probabilities
+`-o POSTERIORS_OUTPUT`, `--posteriors-output POSTERIORS_OUTPUT`: output file name of per-guide/cell posterior probabilities. Required for MuData inputs (the output will be another MuData file).
 
 `--so SO`, `--samples-output SO`: output file name of sample data
 
@@ -35,13 +37,25 @@ CLEANSER depends on something called [CmdStan](https://mc-stan.org/docs/cmdstan-
 
 `-c CHAINS`, `--chains CHAINS`: The [number of Markov chains](https://mc-stan.org/docs/cmdstan-guide/mcmc-intro.html#multi-chain-sampling) (This parameter will be used by STAN).
 
-`-p PARALLEL_RUNS`, `--parallel-runs PARALLEL_RUNS`: Number of guide models to run in parallel (this parameter will be used by STAN)/
+`-p PARALLEL_RUNS`, `--parallel-runs PARALLEL_RUNS`: Number of guide models to run in parallel (this parameter will be used by STAN).
 
 `--lpf NORMALIZATION_LPF`, `--normalization-lpf NORMALIZATION_LPF`: The upper limit for including the guide counts in guide count normalization. Set to 0 for no limit. (LPF stands for "low pass filter")
 
-`--dc`, `--direct-capture`: Use mixture model for direct capture experiments. Must specify either this or `--crop-seq`
+`--dc`, `--direct-capture`: Use mixture model for direct capture experiments. Mutually exclusive with `--crop-seq`.
 
-`--cs`, `--crop-seq`: Use mixture model for crop-seq experiments. Must specify either this or `--direct-capture`.
+`--cs`, `--crop-seq`: Use mixture model for crop-seq experiments. Mutually exclusive with `--direct-capture`.
+
+`-t THRESHOLD`, `--threshold THRESHOLD`: If set, guide calls will be binarized at this cutoff. When using MuData files, a new layer is added with the raw posterior probabilities. For backwards compatibility, `--output-layer` will contain the binarized assignments, and a new layer ending with `_posterior` will contain the posterior probabilities.
+
+### MuData options
+
+The following arguments apply only when the input is a MuData file. For MuData inputs, `--capture-method-key` can be used in place of `--dc`/`--cs` to read the capture method from the file itself.
+
+`--modality MODALITY`: The name of the MuData modality the guide information is in. Required for MuData inputs.
+
+`--output-layer OUTPUT_LAYER`: The name of the layer (within the same modality as the input) to write the posterior probability data to. Required for MuData inputs.
+
+`--capture-method-key CAPTURE_METHOD_KEY`: The key for reading the capture method name from the modality's unstructured data (`uns`). When provided, `--dc`/`--cs` are not required.
 
 
 ### Using CLEANSER with Cell Ranger
@@ -62,7 +76,11 @@ Guide Capture" values use the `cr2cleanser` utility included with CLEANSER.
 
 ## Input File Format
 
-The input file has a [Matrix Market file](https://math.nist.gov/MatrixMarket/formats.html#MMformat)-esque format where the column values are `Guide ID`, `Cell ID`, and `Guide Count`, in that order.
+CLEANSER accepts two input formats:
+
+**Matrix Market** (`.mm`, `.mtx`): A [Matrix Market file](https://math.nist.gov/MatrixMarket/formats.html#MMformat)-esque format where the column values are `Guide ID`, `Cell ID`, and `Guide Count`, in that order.
+
+**MuData** (`.h5mu`): A [MuData](https://mudata.readthedocs.io/) file. Use `--modality` to specify which modality contains the guide library information, and `--output-layer` to specify where to write the results. The capture method can be provided via `--dc`/`--cs` or read automatically from the file using `--capture-method-key`.
 
 ## Quality Control
 
@@ -103,4 +121,4 @@ options:
 If you use CLEANSER in your reseach, please cite:
 > Liu S, Hamilton MC, Cowart T, Barrera A, Bounds LR, Nelson AC, Dornbaum SF, Riley JW, Doty RW, Allen AS, Crawford GE, Majoros WH, Gersbach CA. Characterization and bioinformatic filtering of ambient gRNAs in single-cell CRISPR screens using CLEANSER. Cell Genom. 2025 Feb 12;5(2):100766. doi: 10.1016/j.xgen.2025.100766. Epub 2025 Feb 5. PMID: 39914388; PMCID: PMC11872138.
 
-The `main` branch should be preferentially used, but if you want to use the closest version of the software that was used in the manuscript above, please use the [v0.1](https://github.com/Gersbachlab-Bioinformatics/CLEANSER/tree/v0.1) branch.
+The `main` branch should be preferentially used, but if you want to use the closest version of the software that was used in the manuscript above, please use the [v0.1](https://github.com/Gersbachlab-Bioinformatics/CLEANSER/tree/v0.1) tag.
