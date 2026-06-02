@@ -1,7 +1,7 @@
 import argparse
 import sys
 
-from .configuration import Model, MtxConfiguration, MuDataConfiguration
+from .configuration import Model, MtxConfiguration, MuDataConfiguration, AnnDataConfiguration
 from .constants import (
     DEFAULT_CHAINS,
     DEFAULT_NORM_LPF,
@@ -111,7 +111,40 @@ def get_configuration(args):
             return MtxConfiguration(
                 input=args.input, model=model, sample_output=args.so, posteriors_output=args.posteriors_output
             )  # matrix market
-        case "h5mu" | "h5ad" | "h5" | "hdf5" | "he5":
+        case "h5ad":
+            if args.capture_method_key is None:
+                if args.dc:
+                    model = Model.DC
+                elif args.cs:
+                    model = Model.CS
+                else:
+                    raise argparse.ArgumentError(
+                        argument=None,
+                        message="Must specify either a capture method (--direct-capture or --crop-seq arguments) or the key to get the capture method from the h5ad file.",
+                    )
+            else:
+                model = None
+
+            if args.output_layer is None:
+                raise argparse.ArgumentError(
+                    argument=None, message="The --output-layer argument is required for h5ad files."
+                )
+
+            if args.posteriors_output is None:
+                raise argparse.ArgumentError(
+                    argument=None, message="The --posteriors-output argument is required for h5ad files."
+                )
+
+            return AnnDataConfiguration(
+                input=args.input,
+                capture_method=args.capture_method_key,
+                output_layer=args.output_layer,
+                model=model,
+                sample_output=args.so,
+                posteriors_output=args.posteriors_output,
+                threshold=args.threshold,
+            )
+        case "h5mu" | "h5" | "hdf5" | "he5":
             if args.capture_method_key is None:
                 if args.dc:
                     model = Model.DC
@@ -122,7 +155,6 @@ def get_configuration(args):
                         argument=None,
                         message="Must specify either a capture method (--direct-capture or --crop-seq arguments) or the key to get the capture method from the mudata file.",
                     )
-
             else:
                 model = None
 

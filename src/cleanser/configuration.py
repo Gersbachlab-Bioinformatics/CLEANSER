@@ -4,13 +4,14 @@ from collections.abc import Generator
 from enum import StrEnum
 from typing import Optional, TextIO
 
+import anndata as ad
 import numpy as np
 import mudata as md
 from scipy.sparse import dok_matrix
 
 from . import constants
 
-__all__ = ["Model", "MtxConfiguration", "MuDataConfiguration"]
+__all__ = ["Model", "MtxConfiguration", "MuDataConfiguration", "AnnDataConfiguration"]
 
 MMLine = tuple[str, str, int]
 MMData = Generator[MMLine, None, None]
@@ -191,6 +192,63 @@ class MuDataConfiguration(Configuration):
         else:
             self.guides.layers[self.output_layer] = self.output_matrix.tocsr()
         md.write(self.posteriors_output_file, self.input_file)
+
+
+class AnnDataConfiguration(Configuration):
+    def __init__(
+        self, input, capture_method, output_layer, model, sample_output, posteriors_output, threshold
+    ):
+        super().__init__(input, model, sample_output, posteriors_output)
+        self.guides = ad.read_h5ad(input)
+        if model is None:
+            analysis = self.guides.uns.get(capture_method)
+            if analysis is not None:
+                if analysis[0] == "CROP-seq":
+                    self.model = Model.CS
+                elif analysis[0] == "direct capture":
+                    self.model = Model.DC
+        else:
+            self.model = model
+        self.output_layer = output_layer
+        self.output_matrix = dok_matrix(self.guides.X.shape)
+        self.posteriors_output_file = posteriors_output
+        self.threshold = threshold
+
+        if threshold is None:
+            self.collect_posteriors = self._raw_collect
+        else:
+            self.output_binary_matrix = dok_matrix(self.guides.X.shape)
+            self.collect_posteriors = self._raw_and_threshold_collect
+
+    def __del__(self):
+        sample_output_file = getattr(self, "sample_output_file", None)
+        if sample_output_file is not None and getattr(sample_output_file, "close", None) is not None:
+            sample_output_file.close()
+
+    def gen_data(self) -> MMData:
+        guide_count_array = self.guides.X.todok()
+        for key, guide_count in guide_count_array.items():
+            yield (key[1], key[0], int(guide_count))
+
+    def _raw_and_threshold_collect(self, guide_id, samples, cell_info):
+        pzi = np.transpose(samples.stan_variable("PZi"))
+        for i, (cell_id, _) in enumerate(cell_info):
+            self.output_matrix[cell_id, guide_id] = np.median(pzi[i])
+            if np.median(pzi[i]) >= self.threshold:
+                self.output_binary_matrix[cell_id, guide_id] = 1
+
+    def _raw_collect(self, guide_id, samples, cell_info):
+        pzi = np.transpose(samples.stan_variable("PZi"))
+        for i, (cell_id, _) in enumerate(cell_info):
+            self.output_matrix[cell_id, guide_id] = np.median(pzi[i])
+
+    def output_posteriors(self):
+        if self.threshold is not None:
+            self.guides.layers[self.output_layer] = self.output_binary_matrix.tocsr()
+            self.guides.layers[f"{self.output_layer}_{constants.MUDATA_POSTERIORS_LAYER_SUFFIX}"] = self.output_matrix.tocsr()
+        else:
+            self.guides.layers[self.output_layer] = self.output_matrix.tocsr()
+        self.guides.write_h5ad(self.posteriors_output_file)
 
 
 class MtxConfiguration(Configuration):

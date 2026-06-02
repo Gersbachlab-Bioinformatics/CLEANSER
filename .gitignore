@@ -19,6 +19,7 @@ posteriors
 # IDE/editor settings
 .vscode/
 .idea/
+.claude/
 *.sublime-workspace
 *.sublime-project
 
