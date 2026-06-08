@@ -88,11 +88,16 @@ def get_args():
     parser.add_argument(
         "-t", "--threshold", help="If set, the guide calls will be binarized at this cutoff. When using MuData files, " \
         "a new layer with the posterior probabilities will be added. For backwards compatibility, the '--output-layer' " \
-        "will have the binarized assignments, and a new layer ending with `_posterior` will contain the posterior probabilities.", 
+        "will have the binarized assignments, and a new layer ending with `_posterior` will contain the posterior probabilities.",
         default=None, type=float
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.threshold is not None and not (0 < args.threshold <= 1):
+        parser.error("--threshold must be a probability between 0 (exclusive) and 1 (inclusive)")
+
+    return args
 
 
 def get_configuration(args):
