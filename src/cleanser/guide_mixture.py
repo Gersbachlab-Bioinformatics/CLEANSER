@@ -66,13 +66,28 @@ _worker_model = None
 
 
 def _init_worker(model_file):
-    # Constructing a CmdStanModel checks the compiled binary's hash/timestamp
-    # against the .stan source, which is real (if modest) work. Doing this once
-    # per worker process here -- instead of once per guide in the main process,
-    # serially, ahead of the parallel section -- removes a redundant cost that
-    # otherwise scales linearly with guide count for no benefit.
+    # By the time workers are started, _ensure_compiled() has already forced
+    # compilation to happen exactly once in the main process, so this just
+    # picks up the already-valid binary -- it does not compile. Constructing
+    # a CmdStanModel here is still real (if modest) work (hash/timestamp
+    # checks against the .stan source), which is why it's done once per
+    # worker process rather than once per guide, but it must never be the
+    # thing that triggers compilation: if N workers all start concurrently
+    # and none of them found a compiled binary yet, they will all try to
+    # compile to the same output files at once, corrupting each other's
+    # intermediate build artifacts (this actually happened -- see git log).
     global _worker_model
     _worker_model = CmdStanModel(stan_file=files("cleanser").joinpath(model_file))
+
+
+def _ensure_compiled(model_file):
+    # Forces compilation (if needed) to happen exactly once, synchronously,
+    # in the main process, before any worker processes exist. Without this,
+    # a fresh install/checkout with no compiled binary yet leads every
+    # worker's _init_worker to race to compile the same output files
+    # concurrently -- not just slower, but capable of producing a corrupted
+    # binary (or crashing outright, which is what we observed).
+    CmdStanModel(stan_file=files("cleanser").joinpath(model_file))
 
 
 def run_stan(stan_args):
@@ -129,6 +144,8 @@ def run(
                 (seed + int(guide_id)) % MAX_SEED_INT,
             )
             yield result
+
+    _ensure_compiled(config.model)
 
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=num_parallel_runs, initializer=_init_worker, initargs=(config.model,)
