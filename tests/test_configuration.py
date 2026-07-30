@@ -223,13 +223,13 @@ class TestMuDataConfigurationStatsCollection:
             "lambda": np.array([3, 5, 7]),
         }[var]
 
-        mock_mudata_config_cs.collect_stats(mock_samples)
+        mock_mudata_config_cs.collect_stats(7, mock_samples)
 
         assert len(mock_mudata_config_cs.stats) == 1
         r_median = np.median([0.4, 0.5, 0.6])
         mu_median = np.median([10, 15, 20])
         lam_median = np.median([3, 5, 7])
-        assert mock_mudata_config_cs.stats[0] == (r_median, mu_median, lam_median)
+        assert mock_mudata_config_cs.stats[0] == (7, r_median, mu_median, lam_median)
 
     def test_collect_dc_stats(self, mock_mudata_config_dc):
         """Test DC model stats collection."""
@@ -241,14 +241,14 @@ class TestMuDataConfigurationStatsCollection:
             "n_nbDisp": np.array([0.05, 0.1, 0.15]),
         }[var]
 
-        mock_mudata_config_dc.collect_stats(mock_samples)
+        mock_mudata_config_dc.collect_stats(3, mock_samples)
 
         assert len(mock_mudata_config_dc.stats) == 1
         r_median = np.median([0.3, 0.5, 0.7])
         mu_median = np.median([8, 12, 16])
         n_mean_median = np.median([5, 10, 15])
         n_disp_median = np.median([0.05, 0.1, 0.15])
-        assert mock_mudata_config_dc.stats[0] == (r_median, mu_median, n_mean_median, n_disp_median)
+        assert mock_mudata_config_dc.stats[0] == (3, r_median, mu_median, n_mean_median, n_disp_median)
 
 
 class TestMtxConfigurationDataGeneration:

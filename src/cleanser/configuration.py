@@ -36,6 +36,15 @@ class Configuration:
             self.sample_output_file = open(sample_output, "w", encoding="utf8")
         else:
             self.sample_output_file = sys.stdout
+            # Nobody asked for per-sample output, so don't pay to accumulate
+            # every posterior draw for every guide in memory for the whole
+            # run just to discard it at the end. At real guide/sample counts
+            # this was the single largest avoidable memory cost in a run that
+            # never even looks at self.samples.
+            self.collect_samples = self._noop_collect_samples
+
+    def _noop_collect_samples(self, guide_id, samples):
+        pass
 
     def gen_data(self) -> MMData:
         raise NotImplementedError("This is an abstract method")
@@ -87,25 +96,27 @@ class Configuration:
         for guide_id, r_samp, mu, disp, n_mean, n_disp in self.samples:
             self.sample_output_file.write(f"{guide_id}\t{r_samp}\t{mu}\t{disp}\t{n_mean}\t{n_disp}\n")
 
-    def collect_stats(self, results):
+    def collect_stats(self, guide_id, results):
         match self.model:
             case Model.DC:
-                self.collect_dc_stats(results)
+                self.collect_dc_stats(guide_id, results)
             case Model.CS:
-                self.collect_cs_stats(results)
+                self.collect_cs_stats(guide_id, results)
 
-    def collect_cs_stats(self, samples):
+    def collect_cs_stats(self, guide_id, samples):
         self.stats.append(
             (
+                guide_id,
                 np.median(samples.stan_variable("r")),
                 np.median(samples.stan_variable("nbMean")),
                 np.median(samples.stan_variable("lambda")),
             )
         )
 
-    def collect_dc_stats(self, samples):
+    def collect_dc_stats(self, guide_id, samples):
         self.stats.append(
             (
+                guide_id,
                 np.median(samples.stan_variable("r")),
                 np.median(samples.stan_variable("nbMean")),
                 np.median(samples.stan_variable("n_nbMean")),
@@ -121,12 +132,12 @@ class Configuration:
                 self.output_cs_stats()
 
     def output_cs_stats(self):
-        for r, mu, lam in self.stats:
-            print(f"r={r}\tmu={mu}\tlambda={lam}")
+        for guide_id, r, mu, lam in self.stats:
+            print(f"guide={guide_id}\tr={r}\tmu={mu}\tlambda={lam}")
 
     def output_dc_stats(self):
-        for r, mu, n_nbMean, n_nbDisp in self.stats:
-            print(f"r={r}\tmu={mu}\n_nbMean={n_nbMean}\tn_nbDisp={n_nbDisp}")
+        for guide_id, r, mu, n_nbMean, n_nbDisp in self.stats:
+            print(f"guide={guide_id}\tr={r}\tmu={mu}\n_nbMean={n_nbMean}\tn_nbDisp={n_nbDisp}")
 
 
 class MuDataConfiguration(Configuration):
@@ -134,7 +145,12 @@ class MuDataConfiguration(Configuration):
         self, input, modality, capture_method, output_layer, model, sample_output, posteriors_output, threshold
     ):
         super().__init__(input, model, sample_output, posteriors_output)
-        self.input_file = md.read(input)
+        # backed="r" keeps every modality other than the one we're actually
+        # fitting (e.g. a "gene" expression modality that can dwarf the guide
+        # data at real cell counts) unloaded/on-disk instead of materialized
+        # in memory. Writing the object back out later still round-trips the
+        # untouched modalities correctly.
+        self.input_file = md.read(input, backed="r")
         self.guides = self.input_file[modality]
         if model is None:
             analysis = self.guides.uns.get(capture_method)
@@ -162,9 +178,15 @@ class MuDataConfiguration(Configuration):
             sample_output_file.close()
 
     def gen_data(self) -> MMData:
-        guide_count_array = self.guides.X.todok()
-        for key, guide_count in guide_count_array.items():
-            yield (key[1], key[0], int(guide_count))
+        # .tocoo() gives plain numpy arrays (row/col/data) instead of a Python
+        # dict with one entry per nonzero value -- at real cell/guide counts,
+        # .todok()'s per-entry Python object overhead (tuple key + boxed int
+        # per nonzero) adds up to real, avoidable memory. X[:] materializes
+        # just this (small) modality's data -- backed=True leaves it as a lazy
+        # on-disk dataset that doesn't support .tocoo() directly.
+        coo = self.guides.X[:].tocoo()
+        for cell_id, guide_id, guide_count in zip(coo.row, coo.col, coo.data):
+            yield (int(guide_id), int(cell_id), int(guide_count))
 
     def _raw_and_threshold_collect(self, guide_id, samples, cell_info):
         pzi = np.transpose(samples.stan_variable("PZi"))

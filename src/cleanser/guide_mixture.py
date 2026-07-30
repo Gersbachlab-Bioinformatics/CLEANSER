@@ -7,8 +7,8 @@
 import concurrent.futures
 import os
 from collections import defaultdict
+from collections.abc import Iterable
 from importlib.resources import files
-from operator import itemgetter
 
 from cmdstanpy import CmdStanModel
 
@@ -26,7 +26,7 @@ from .constants import (
 CountData = dict[str, float]
 
 
-def mm_counts(mtx_lines: list[MMLine], norm_lpf: int) -> tuple[dict[str, int], dict[str, list[tuple[str, int]]]]:
+def mm_counts(mtx_lines: Iterable[MMLine], norm_lpf: int) -> tuple[dict[str, int], dict[str, list[tuple[str, int]]]]:
     cumulative_counts = {}
     per_guide_counts = defaultdict(lambda: [])
 
@@ -62,9 +62,22 @@ def normalize(count_data: dict[str, int]) -> CountData:
     return norm_cell_counts
 
 
+_worker_model = None
+
+
+def _init_worker(model_file):
+    # Constructing a CmdStanModel checks the compiled binary's hash/timestamp
+    # against the .stan source, which is real (if modest) work. Doing this once
+    # per worker process here -- instead of once per guide in the main process,
+    # serially, ahead of the parallel section -- removes a redundant cost that
+    # otherwise scales linearly with guide count for no benefit.
+    global _worker_model
+    _worker_model = CmdStanModel(stan_file=files("cleanser").joinpath(model_file))
+
+
 def run_stan(stan_args):
-    model, guide_id, X, L, num_warmup, num_samples, chains, seed = stan_args
-    fit = model.sample(
+    guide_id, X, L, num_warmup, num_samples, chains, seed = stan_args
+    fit = _worker_model.sample(
         data={"N": len(X), "X": X, "L": L},
         iter_warmup=num_warmup,
         iter_sampling=num_samples,
@@ -97,14 +110,16 @@ def run(
     num_warmup: int = DEFAULT_WARMUP,
     seed: int = DEFAULT_SEED,
 ):
-    sorted_mm_lines = sorted(list(config.gen_data()), key=itemgetter(0, 1))
-    cumulative_counts, per_guide_counts = mm_counts(sorted_mm_lines, normalization_lpf)
+    # mm_counts() only accumulates into dicts keyed by guide/cell -- it has no
+    # dependency on input order, so sorting (and the full extra in-memory copy
+    # that entails) here was pure overhead at guide/cell counts large enough
+    # for it to matter.
+    cumulative_counts, per_guide_counts = mm_counts(config.gen_data(), normalization_lpf)
     normalized_counts = normalize(cumulative_counts)
 
     def stan_params():
         for guide_id, guide_counts in per_guide_counts.items():
             result = (
-                CmdStanModel(stan_file=files("cleanser").joinpath(config.model)),
                 guide_id,
                 [guide_count for _, guide_count in guide_counts],  # X
                 [normalized_counts[cell_id] for cell_id, _ in guide_counts],  # L
@@ -115,10 +130,20 @@ def run(
             )
             yield result
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_parallel_runs) as executor:
-        for guide_id, samples in executor.map(run_stan, stan_params()):
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=num_parallel_runs, initializer=_init_worker, initargs=(config.model,)
+    ) as executor:
+        futures = [executor.submit(run_stan, args) for args in stan_params()]
+        # as_completed (not map, which yields in submission order) so a guide
+        # that's slow to fit can't block cleanup of every other guide that
+        # finished after it -- each guide's temp files are deleted the moment
+        # that guide is done, bounding simultaneous disk usage to roughly
+        # num_parallel_runs guides' worth regardless of how variable
+        # individual guides' fit times are.
+        for future in concurrent.futures.as_completed(futures):
+            guide_id, samples = future.result()
             config.collect_samples(guide_id, samples)
-            config.collect_stats(samples)
+            config.collect_stats(guide_id, samples)
             config.collect_posteriors(guide_id, samples, per_guide_counts[guide_id])
 
             delete_temp_files(samples)
