@@ -147,6 +147,10 @@ def run(
 
     _ensure_compiled(config.model)
 
+    print(f"Fitting {len(per_guide_counts)} guides using {num_parallel_runs} parallel workers "
+          f"({chains} chains each). If this doesn't match what you expect for your allocation "
+          f"(e.g. on a shared HPC node), pass -p/--parallel-runs explicitly.")
+
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=num_parallel_runs, initializer=_init_worker, initargs=(config.model,)
     ) as executor:
