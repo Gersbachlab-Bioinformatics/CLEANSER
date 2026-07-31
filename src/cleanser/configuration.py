@@ -145,12 +145,7 @@ class MuDataConfiguration(Configuration):
         self, input, modality, capture_method, output_layer, model, sample_output, posteriors_output, threshold
     ):
         super().__init__(input, model, sample_output, posteriors_output)
-        # backed="r" keeps every modality other than the one we're actually
-        # fitting (e.g. a "gene" expression modality that can dwarf the guide
-        # data at real cell counts) unloaded/on-disk instead of materialized
-        # in memory. Writing the object back out later still round-trips the
-        # untouched modalities correctly.
-        self.input_file = md.read(input, backed="r")
+        self.input_file = self._read_input(input, modality)
         self.guides = self.input_file[modality]
         if model is None:
             analysis = self.guides.uns.get(capture_method)
@@ -171,7 +166,33 @@ class MuDataConfiguration(Configuration):
         else:
             self.output_binary_matrix = dok_matrix(self.guides.X.shape)
             self.collect_posteriors = self._raw_and_threshold_collect
-                            
+
+    @staticmethod
+    def _read_input(input, modality):
+        # backed="r" avoids materializing modalities other than the one we're
+        # actually fitting -- e.g. a "gene" expression modality that can dwarf
+        # the guide data at real cell counts. But it does this by reading
+        # lazily through HDF5 in small granular chunks rather than one bulk
+        # read, and both this initial read *and* the later write-back
+        # (which still has to read every modality's backed data to copy it
+        # into the new output file) pay that lazy-access cost. On a
+        # network-attached filesystem (common on HPC clusters), many small
+        # reads can be far slower than one bulk read -- so backed mode is
+        # only worth it when there's actually a lot of *other* data to skip.
+        # A guide-only file (or one where the other modalities are small
+        # relative to the guide modality) gets none of the benefit and all
+        # of the overhead, which is exactly what happened on a guide-only
+        # production file: this measurably regressed both memory and time
+        # instead of improving them.
+        backed = md.read(input, backed="r")
+        target_size = backed[modality].shape[0] * backed[modality].shape[1]
+        other_size = sum(
+            mod.shape[0] * mod.shape[1] for name, mod in backed.mod.items() if name != modality
+        )
+        if other_size > 2 * target_size:
+            return backed
+        return md.read(input)
+
     def __del__(self):
         sample_output_file = getattr(self, "sample_output_file", None)
         if sample_output_file is not None and getattr(sample_output_file, "close", None) is not None:

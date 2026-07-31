@@ -333,7 +333,9 @@ class TestMuDataConfigurationInitialization:
         mock_mudata = MagicMock()
         mock_mudata.__getitem__.return_value = MagicMock()
         mock_mudata.__getitem__.return_value.X = dok_matrix((5, 5))
+        mock_mudata.__getitem__.return_value.shape = (5, 5)
         mock_mudata.__getitem__.return_value.uns = {}
+        mock_mudata.mod = {"guides": mock_mudata.__getitem__.return_value}
         mock_md_read.return_value = mock_mudata
 
         with tempfile.NamedTemporaryFile(suffix=".h5mu") as tmp:
@@ -357,7 +359,9 @@ class TestMuDataConfigurationInitialization:
         mock_mudata = MagicMock()
         mock_mudata.__getitem__.return_value = MagicMock()
         mock_mudata.__getitem__.return_value.X = dok_matrix((5, 5))
+        mock_mudata.__getitem__.return_value.shape = (5, 5)
         mock_mudata.__getitem__.return_value.uns = {}
+        mock_mudata.mod = {"guides": mock_mudata.__getitem__.return_value}
         mock_md_read.return_value = mock_mudata
 
         with tempfile.NamedTemporaryFile(suffix=".h5mu") as tmp:
